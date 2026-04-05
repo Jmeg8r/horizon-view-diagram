@@ -1,0 +1,48 @@
+# ── Diagram outputs (generated, not source-controlled) ────────────────────────
+output/
+*.png
+*.svg
+*.pdf
+*.drawio
+
+# ── Harvested environment data (may contain sensitive IPs/FQDNs) ──────────────
+# Remove this line if you WANT to version-control your environment snapshots
+horizon-environment.json
+*-environment.json
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.Python
+
+# ── PowerShell / Windows ──────────────────────────────────────────────────────
+*.ps1xml
+Thumbs.db
+
+# ── macOS ─────────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# ── IDE / Editor ──────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ── Credentials (never commit these) ─────────────────────────────────────────
+*.cred
+*.credential
+secrets.json
+.env
