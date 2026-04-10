@@ -192,7 +192,10 @@ def build_diagram(env: dict, output_path: str, output_format: str,
     gen_date = meta.get("generated_at", datetime.now().isoformat())[:10]
 
     diagram_title = f"{env_name}\nGenerated: {gen_date} | ASTGL.com"
-    filename      = Path(output_path).stem  # diagrams adds the extension
+    # WHY: pass the full path prefix (dir + stem) to Diagram(). Previously this
+    # used Path(output_path).stem which silently stripped the directory, forcing
+    # output into cwd regardless of what the caller specified.
+    filename      = output_path  # diagrams adds the extension
 
     print_step(f"Building diagram: {output_path}.{output_format}")
 
@@ -863,6 +866,9 @@ Examples:
                         help="Path to JSON from Invoke-HorizonHarvester.ps1")
     parser.add_argument("--output",   "-o", default="",
                         help="Output filename stem (no extension). Defaults to env name.")
+    parser.add_argument("--output-dir", "-O", default="output",
+                        help="Directory to write rendered files into (created if missing). "
+                             "Default: ./output")
     parser.add_argument("--format",   "-f", default="png",
                         choices=["png", "svg", "pdf"],
                         help="Output format for diagrams library render (default: png)")
@@ -889,8 +895,13 @@ Examples:
     env_name = meta.get("environment_name", "horizon-view-diagram")
     safe_name = env_name.lower().replace(" ", "-").replace("/", "-")
 
-    output_stem = args.output if args.output else safe_name
-    show_ports  = not args.no_port_labels
+    stem = args.output if args.output else safe_name
+    show_ports = not args.no_port_labels
+
+    # Resolve and create the output directory, then build the full path prefix.
+    output_dir = Path(args.output_dir).expanduser().resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_stem = str(output_dir / stem)   # full path prefix, no extension
 
     # Generate diagrams library PNG/SVG/PDF
     print_step(f"Generating {args.format.upper()} diagram...")
@@ -908,13 +919,17 @@ Examples:
         drawio_path = f"{output_stem}.drawio"
         build_drawio_xml(env, drawio_path)
 
+    # Show the bare filenames in the banner (paths can be long); full dir below.
+    png_name    = f"{stem}.{args.format}"
+    drawio_name = f"{stem}.drawio"
     print("\n╔══════════════════════════════════════════════════════════╗")
     print("║                   Diagram Complete!                     ║")
     print("╠══════════════════════════════════════════════════════════╣")
-    print(f"║  PNG/SVG : {(output_stem + '.' + args.format).ljust(45)} ║")
+    print(f"║  PNG/SVG : {png_name.ljust(45)} ║")
     if args.drawio:
-        print(f"║  Draw.io : {(output_stem + '.drawio').ljust(45)} ║")
-    print("╚══════════════════════════════════════════════════════════╝\n")
+        print(f"║  Draw.io : {drawio_name.ljust(45)} ║")
+    print("╚══════════════════════════════════════════════════════════╝")
+    print(f"  Output directory: {output_dir}\n")
 
 
 if __name__ == "__main__":
