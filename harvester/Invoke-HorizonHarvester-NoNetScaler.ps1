@@ -78,19 +78,81 @@
     NetScaler: NOT REQUIRED — topology inferred via DNS + TCP probing
 #>
 
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = 'ByServer')]
 param(
-    [string]$OutputPath           = ".\horizon-environment.json",
-    [Parameter(Mandatory)][string]$vCenterServer,
-    [Parameter(Mandatory)][string]$HorizonServer,
-    [string]$HorizonExternalURL   = "",
+    # ── ByEnvironment: single -Environment flag reads everything from config + vault
+    [Parameter(ParameterSetName = 'ByEnvironment', Mandatory)]
+    [string]$Environment,
+
+    # ── ByServer: legacy / one-off explicit parameters
+    [Parameter(ParameterSetName = 'ByServer', Mandatory)]
+    [string]$vCenterServer,
+    [Parameter(ParameterSetName = 'ByServer', Mandatory)]
+    [string]$HorizonServer,
+    [Parameter(ParameterSetName = 'ByServer')]
+    [string]$HorizonExternalURL = "",
+
+    # ── Shared across both parameter sets
+    [string]$OutputPath = "",
     [switch]$SkipStorage,
     [switch]$SkipCertificateCheck,
     [switch]$SkipPortProbe
 )
 
-Set-StrictMode -Version Latest
+# WHY StrictMode v1, not Latest:
+# v3/Latest raises an error when dot-notation reads a hashtable key that the
+# PSObject adapter can't prove exists — which in practice breaks cleanly
+# written code that works fine in PowerShell 5.1. We still want undefined-
+# variable checks (v1 gives us that), but not the full v3 property-lookup
+# behaviour, which collides with PowerCLI's internals on PowerShell 7.
+Set-StrictMode -Version 1.0
 $ErrorActionPreference = "Stop"
+
+# ── Environment-mode preflight ────────────────────────────────────────────────
+# WHY: in ByEnvironment mode we need to resolve hostnames + credentials from
+# the shared config module BEFORE the rest of the script runs, so the
+# downstream logic (which uses $vCenterServer etc.) sees the same values it
+# would have received from direct parameters.
+$vCenterCred = $null
+$horizonCred = $null
+
+if ($PSCmdlet.ParameterSetName -eq 'ByEnvironment') {
+    $modulePath = Join-Path $PSScriptRoot 'Common/HorizonEnvConfig.psm1'
+    if (-not (Test-Path $modulePath)) {
+        throw "Shared module not found: $modulePath"
+    }
+    Import-Module $modulePath -Force
+
+    $envCfg = Get-HorizonEnvironment -Name $Environment
+    $creds  = Get-HorizonCredentials -Environment $Environment
+
+    $vCenterServer      = $envCfg.vcenter
+    $HorizonServer      = $envCfg.horizon
+    $HorizonExternalURL = if ($envCfg.ContainsKey('external_url')) { $envCfg.external_url } else { '' }
+
+    # Promote env-config skip flag unless caller explicitly overrode it
+    if (-not $PSBoundParameters.ContainsKey('SkipCertificateCheck') -and
+        $envCfg.ContainsKey('skip_certificate_check') -and
+        $envCfg.skip_certificate_check) {
+        $SkipCertificateCheck = $true
+    }
+
+    $vCenterCred = $creds.vCenter
+    $horizonCred = $creds.Horizon
+
+    # Default output path: data/{env}-environment.json relative to repo root
+    if (-not $OutputPath) {
+        $dataDir    = Join-Path (Split-Path $PSScriptRoot -Parent) 'data'
+        if (-not (Test-Path $dataDir)) {
+            New-Item -ItemType Directory -Path $dataDir -Force | Out-Null
+        }
+        $OutputPath = Join-Path $dataDir "$Environment-environment.json"
+    }
+}
+elseif (-not $OutputPath) {
+    # Preserve legacy default for ByServer mode
+    $OutputPath = ".\horizon-environment.json"
+}
 
 #region ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -107,18 +169,11 @@ function Write-Warn   { param([string]$M) Write-Host "  ⚠ $M" -ForegroundColor
 function Write-Infer  { param([string]$M) Write-Host "  ~ $M" -ForegroundColor DarkYellow }
 
 if ($SkipCertificateCheck) {
-    if (-not ([System.Management.Automation.PSTypeName]'TrustAllCerts').Type) {
-        Add-Type @"
-using System.Net;
-using System.Security.Cryptography.X509Certificates;
-public class TrustAllCerts : ICertificatePolicy {
-    public bool CheckValidationResult(ServicePoint sp, X509Certificate cert,
-        WebRequest req, int prob) { return true; }
-}
-"@
-    }
-    [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCerts
-    [System.Net.ServicePointManager]::SecurityProtocol  = [System.Net.SecurityProtocolType]::Tls12
+    # WHY: ICertificatePolicy only exists in .NET Framework. On .NET Core / .NET 5+
+    # (i.e. PowerShell 7 on macOS/Linux) it throws CS0246. ServerCertificateValidationCallback
+    # works in BOTH Windows PowerShell 5.1 and PowerShell 7+, so it's the portable choice.
+    [System.Net.ServicePointManager]::ServerCertificateValidationCallback = { $true }
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
 }
 
 #endregion
@@ -132,14 +187,20 @@ Write-Host "╠═════════════════════�
 Write-Host "║  NetScaler data will be INFERRED (marked in output)     ║" -ForegroundColor DarkYellow
 Write-Host "╚══════════════════════════════════════════════════════════╝`n" -ForegroundColor Cyan
 
-$vCenterCred = Get-Credential -Message "vCenter ($vCenterServer) credentials"
-$horizonCred = Get-Credential -Message "Horizon Connection Server ($HorizonServer) credentials"
+# In ByEnvironment mode these were populated from the SecretStore vault above.
+# In ByServer mode, prompt interactively as before.
+if (-not $vCenterCred) {
+    $vCenterCred = Get-Credential -Message "vCenter ($vCenterServer) credentials"
+}
+if (-not $horizonCred) {
+    $horizonCred = Get-Credential -Message "Horizon Connection Server ($HorizonServer) credentials"
+}
 
 #endregion
 
 #region ── Data Container ──────────────────────────────────────────────────────
 
-$environment = [ordered]@{
+$envData = [ordered]@{
     metadata = [ordered]@{
         generated_at       = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
         generator          = "Invoke-HorizonHarvester-NoNetScaler.ps1 v1.1"
@@ -190,7 +251,7 @@ $environment = [ordered]@{
 # Inference log — documents exactly how each piece of NetScaler data was derived
 function Add-InferenceLog {
     param([string]$Field, [string]$Value, [string]$Method, [string]$Confidence)
-    $environment.dmz.inference_log += [ordered]@{
+    $envData.dmz.inference_log += [ordered]@{
         field      = $Field
         value      = $Value
         method     = $Method
@@ -215,7 +276,7 @@ else {
         Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out-Null
         $vc = Connect-VIServer -Server $vCenterServer -Credential $vCenterCred -WarningAction SilentlyContinue
 
-        $environment.vcenter.server += [ordered]@{
+        $envData.vcenter.server += [ordered]@{
             name    = $vc.Name
             version = $vc.Version
             build   = $vc.Build
@@ -226,7 +287,7 @@ else {
         Write-Step "Collecting Datacenters..."
         $datacenters = Get-Datacenter
         foreach ($dc in $datacenters) {
-            $environment.vcenter.datacenters += [ordered]@{ name = $dc.Name; id = $dc.Id }
+            $envData.vcenter.datacenters += [ordered]@{ name = $dc.Name; id = $dc.Id }
         }
         Write-OK "Found $($datacenters.Count) datacenter(s)"
 
@@ -234,7 +295,7 @@ else {
         $clusters = Get-Cluster
         foreach ($cluster in $clusters) {
             $clusterHosts = Get-VMHost -Location $cluster | Select-Object -ExpandProperty Name
-            $environment.vcenter.clusters += [ordered]@{
+            $envData.vcenter.clusters += [ordered]@{
                 name             = $cluster.Name
                 datacenter       = (Get-Datacenter -Cluster $cluster).Name
                 ha_enabled       = $cluster.HAEnabled
@@ -252,7 +313,7 @@ else {
         $allHosts = Get-VMHost
         foreach ($vmHost in $allHosts) {
             $hostCluster = try { (Get-Cluster -VMHost $vmHost).Name } catch { "Standalone" }
-            $environment.vcenter.hosts += [ordered]@{
+            $envData.vcenter.hosts += [ordered]@{
                 name             = $vmHost.Name
                 cluster          = $hostCluster
                 manufacturer     = $vmHost.Manufacturer
@@ -279,7 +340,7 @@ else {
             if ($vmk.VMotionEnabled)               { $services += "vMotion" }
             if ($vmk.FaultToleranceLoggingEnabled) { $services += "FT Logging" }
             if ($vmk.VsanTrafficEnabled)           { $services += "vSAN" }
-            $environment.networking.vmkernel_adapters += [ordered]@{
+            $envData.networking.vmkernel_adapters += [ordered]@{
                 host       = $vmk.VMHost.ToString()
                 adapter    = $vmk.Name
                 ip         = $vmk.IP
@@ -296,7 +357,7 @@ else {
         foreach ($dvs in $dvSwitches) {
             $dvPGs = Get-VDPortgroup -VDSwitch $dvs |
                 Select-Object Name, VlanConfiguration, @{N="Ports";E={$_.NumPorts}}
-            $environment.networking.distributed_switches += [ordered]@{
+            $envData.networking.distributed_switches += [ordered]@{
                 name        = $dvs.Name
                 version     = $dvs.Version
                 mtu         = $dvs.Mtu
@@ -314,34 +375,54 @@ else {
 
         if (-not $SkipStorage) {
             Write-Step "Collecting Datastores..."
+            # WHY: `Get-Datastore` already returns the full managed object via
+            # ExtensionData. We use that instead of piping each $ds back into
+            # Get-VMHost or Get-ScsiLun (each of which is a fresh vCenter
+            # round-trip) — on large estates that per-datastore API storm was
+            # taking hours and triggering the DatastoreIdList deprecation warning.
             $datastores = Get-Datastore
+            $dsTotal    = $datastores.Count
+            $dsIndex    = 0
             foreach ($ds in $datastores) {
+                $dsIndex++
+                Write-Progress -Activity "Collecting Datastores" `
+                               -Status "[$dsIndex/$dsTotal] $($ds.Name)" `
+                               -PercentComplete (($dsIndex / [math]::Max(1,$dsTotal)) * 100)
+
+                # Host count from ExtensionData — no API call
+                $hostCount = 0
+                try { $hostCount = @($ds.ExtensionData.Host).Count } catch {}
+
                 $dsObj = [ordered]@{
                     name        = $ds.Name
                     type        = $ds.Type.ToString()
                     capacity_gb = [math]::Round($ds.CapacityGB, 1)
                     free_gb     = [math]::Round($ds.FreeSpaceGB, 1)
-                    used_pct    = [math]::Round((($ds.CapacityGB - $ds.FreeSpaceGB) / $ds.CapacityGB) * 100, 1)
-                    host_count  = ($ds | Get-VMHost).Count
+                    used_pct    = if ($ds.CapacityGB -gt 0) {
+                                      [math]::Round((($ds.CapacityGB - $ds.FreeSpaceGB) / $ds.CapacityGB) * 100, 1)
+                                  } else { 0 }
+                    host_count  = $hostCount
                     state       = $ds.State.ToString()
                     scsi_luns   = @()
                 }
+
+                # VMFS extent canonical names come from ExtensionData too — no API call.
+                # We drop capacity_gb / multipath_policy / vendor / model because those
+                # required a Get-ScsiLun per datastore (the slow path). The canonical
+                # name alone is enough for the topology diagram.
                 if ($ds.Type -eq "VMFS") {
                     try {
-                        $luns = $ds | Get-ScsiLun -ErrorAction SilentlyContinue
-                        foreach ($lun in $luns) {
+                        $extents = $ds.ExtensionData.Info.Vmfs.Extent
+                        foreach ($ext in $extents) {
                             $dsObj.scsi_luns += [ordered]@{
-                                canonical_name   = $lun.CanonicalName
-                                capacity_gb      = [math]::Round($lun.CapacityGB, 1)
-                                multipath_policy = $lun.MultipathPolicy.ToString()
-                                vendor           = $lun.Vendor.Trim()
-                                model            = $lun.Model.Trim()
+                                canonical_name = $ext.DiskName
                             }
                         }
                     } catch { }
                 }
-                $environment.storage.datastores += $dsObj
+                $envData.storage.datastores += $dsObj
             }
+            Write-Progress -Activity "Collecting Datastores" -Completed
             Write-OK "Found $($datastores.Count) datastore(s)"
 
             Write-Step "Collecting FC HBAs..."
@@ -351,7 +432,7 @@ else {
                 $wwpn    = ($wwpnHex -split "(?<=\G.{2})(?=.)" | Select-Object -First 8) -join ":"
                 $wwnnHex = "{0:X16}" -f $hba.NodeWorldWideName
                 $wwnn    = ($wwnnHex -split "(?<=\G.{2})(?=.)" | Select-Object -First 8) -join ":"
-                $environment.storage.fc_hbas += [ordered]@{
+                $envData.storage.fc_hbas += [ordered]@{
                     host   = $hba.VMHost.ToString()
                     device = $hba.Device
                     model  = $hba.Model
@@ -370,6 +451,7 @@ else {
     }
     catch {
         Write-Warn "vCenter collection failed: $($_.Exception.Message)"
+        Write-Host "    at: $($_.InvocationInfo.PositionMessage -replace "`n", " ")" -ForegroundColor DarkGray
     }
 }
 
@@ -395,10 +477,30 @@ $discoveredExternalUrl = ""
 
 try {
     $hvBase    = "https://$HorizonServer"
+    # ── Robust domain/username extraction ─────────────────────────────────
+    # Users commonly enter one of three formats in the Get-Credential prompt:
+    #     DOMAIN\user        — PS splits cleanly, Domain=DOMAIN, UserName=user
+    #     user@domain.com    — PS leaves Domain empty, UserName=user@domain.com
+    #     user               — no domain info at all
+    # Horizon REST API REQUIRES the domain field. Handle all three.
+    $netCred = $horizonCred.GetNetworkCredential()
+    $hvDomain   = $netCred.Domain
+    $hvUserName = $netCred.UserName
+    if (-not $hvDomain -and $hvUserName -match '^(.+)@(.+)$') {
+        # UPN format — peel off the first DNS label as the short domain
+        # (e.g. jdoe@example.org → domain='contoso', username='jdoe')
+        $hvUserName = $matches[1]
+        $hvDomain   = ($matches[2] -split '\.')[0]
+        Write-Host "  ► UPN login detected — using domain='$hvDomain', username='$hvUserName'" -ForegroundColor DarkGray
+    }
+    if (-not $hvDomain) {
+        Write-Warn "No domain in Horizon credential. Horizon REST API will likely return 401."
+        Write-Warn "Re-run Register-HorizonEnvironment.ps1 and enter credentials as DOMAIN\user"
+    }
     $loginBody = @{
-        domain   = $horizonCred.GetNetworkCredential().Domain
-        username = $horizonCred.GetNetworkCredential().UserName
-        password = $horizonCred.GetNetworkCredential().Password
+        domain   = $hvDomain
+        username = $hvUserName
+        password = $netCred.Password
     }
 
     Write-Step "Authenticating to Horizon REST API..."
@@ -411,7 +513,7 @@ try {
     Write-Step "Collecting Connection Servers..."
     $connServers = Invoke-HorizonAPI -BaseUri $hvBase -Endpoint "/rest/monitor/v2/connection-servers" -Headers $hvHeaders
     foreach ($cs in $connServers) {
-        $environment.horizon.connection_servers += [ordered]@{
+        $envData.horizon.connection_servers += [ordered]@{
             name               = $cs.name
             version            = $cs.version
             build              = $cs.build
@@ -451,7 +553,7 @@ try {
     Write-Step "Collecting UAGs..."
     $uags = Invoke-HorizonAPI -BaseUri $hvBase -Endpoint "/rest/monitor/v2/gateways" -Headers $hvHeaders
     foreach ($uag in $uags) {
-        $environment.dmz.unified_access_gateways += [ordered]@{
+        $envData.dmz.unified_access_gateways += [ordered]@{
             name            = $uag.name
             type            = $uag.type
             address         = $uag.address
@@ -472,7 +574,7 @@ try {
     Write-Step "Collecting Desktop Pools..."
     $pools = Invoke-HorizonAPI -BaseUri $hvBase -Endpoint "/rest/inventory/v7/desktop-pools" -Headers $hvHeaders
     foreach ($pool in $pools) {
-        $environment.horizon.desktop_pools += [ordered]@{
+        $envData.horizon.desktop_pools += [ordered]@{
             id               = $pool.id
             name             = $pool.name
             display_name     = $pool.display_name
@@ -490,7 +592,7 @@ try {
     Write-Step "Collecting RDS Farms..."
     $farms = Invoke-HorizonAPI -BaseUri $hvBase -Endpoint "/rest/inventory/v2/farms" -Headers $hvHeaders
     foreach ($farm in $farms) {
-        $environment.horizon.rds_farms += [ordered]@{
+        $envData.horizon.rds_farms += [ordered]@{
             id           = $farm.id
             name         = $farm.name
             type         = $farm.type
@@ -507,7 +609,7 @@ try {
     $vcServers = Invoke-HorizonAPI -BaseUri $hvBase -Endpoint "/rest/config/v2/virtual-centers" -Headers $hvHeaders
     foreach ($vcs in $vcServers) {
         if ($vcs.composer_server_address) {
-            $environment.horizon.composer += [ordered]@{
+            $envData.horizon.composer += [ordered]@{
                 name    = "View Composer"
                 address = $vcs.composer_server_address
                 port    = $vcs.composer_server_port
@@ -522,7 +624,7 @@ try {
     $appVolMgrs = Invoke-HorizonAPI -BaseUri $hvBase -Endpoint "/rest/config/v3/app-volumes-managers" -Headers $hvHeaders
     if ($appVolMgrs) {
         foreach ($avm in $appVolMgrs) {
-            $environment.horizon.app_volumes += [ordered]@{
+            $envData.horizon.app_volumes += [ordered]@{
                 name    = $avm.server_address
                 address = $avm.server_address
                 port    = $avm.server_port
@@ -536,7 +638,7 @@ try {
     $enrollServers = Invoke-HorizonAPI -BaseUri $hvBase -Endpoint "/rest/config/v2/enrollment-servers" -Headers $hvHeaders
     if ($enrollServers) {
         foreach ($es in $enrollServers) {
-            $environment.horizon.enrollment_servers += [ordered]@{
+            $envData.horizon.enrollment_servers += [ordered]@{
                 name    = $es.server_address
                 address = $es.server_address
                 status  = $es.status
@@ -550,6 +652,14 @@ try {
 }
 catch {
     Write-Warn "Horizon collection failed: $($_.Exception.Message)"
+    # PS 7 stuffs the HTTP response body into $_.ErrorDetails.Message for
+    # Invoke-RestMethod failures. For 401s from Horizon this usually contains
+    # a JSON error like {"error_message":"...","error_key":"..."} that tells
+    # us precisely why the login was rejected.
+    if ($_.ErrorDetails -and $_.ErrorDetails.Message) {
+        Write-Host "    Response body: $($_.ErrorDetails.Message)" -ForegroundColor DarkGray
+    }
+    Write-Host "    at: $($_.InvocationInfo.PositionMessage -replace "`n", " ")" -ForegroundColor DarkGray
 }
 
 #endregion
@@ -617,13 +727,26 @@ if (-not $SkipPortProbe -and $vipResolved) {
 
     foreach ($portEntry in $horizonPorts) {
         $p = $portEntry.Port
+        # WHY: Test-NetConnection is effectively Windows-only on PS 7 — on
+        # macOS/Linux it either errors out or returns PROBE-FAILED for every
+        # port. We use System.Net.Sockets.TcpClient with a 3s timeout instead,
+        # which is what the SSL-inspection block already uses successfully
+        # a few lines below. Cross-platform and fast.
+        $tcp = $null
         try {
-            $result = Test-NetConnection -ComputerName $externalFQDN -Port $p `
-                -WarningAction SilentlyContinue -InformationLevel Quiet -ErrorAction Stop
-            $status = if ($result.TcpTestSucceeded) { "OPEN" } else { "CLOSED/FILTERED" }
+            $tcp = [System.Net.Sockets.TcpClient]::new()
+            $connectTask = $tcp.ConnectAsync($externalFQDN, $p)
+            if ($connectTask.Wait([timespan]::FromSeconds(3))) {
+                $status = if ($tcp.Connected) { "OPEN" } else { "CLOSED/FILTERED" }
+            } else {
+                $status = "CLOSED/FILTERED"   # timeout
+            }
         }
         catch {
-            $status = "PROBE-FAILED"
+            $status = "CLOSED/FILTERED"
+        }
+        finally {
+            if ($tcp) { $tcp.Dispose() }
         }
         $icon = if ($status -eq "OPEN") { "✔" } else { "✗" }
         $color = if ($status -eq "OPEN") { "Green" } else { "DarkGray" }
@@ -708,7 +831,7 @@ if ($vipResolved -and -not $SkipPortProbe) {
 
 Write-Step "Building inferred NetScaler node from collected evidence..."
 
-$uagCount    = $environment.dmz.unified_access_gateways.Count
+$uagCount    = $envData.dmz.unified_access_gateways.Count
 $nsNodeName  = if ($externalFQDN) { "LB-VIP ($externalFQDN)" } else { "LB-VIP (Unknown)" }
 
 $inferredNS = [ordered]@{
@@ -751,7 +874,7 @@ $inferredNS = [ordered]@{
     )
 }
 
-$environment.dmz.netscalers += $inferredNS
+$envData.dmz.netscalers += $inferredNS
 
 Write-OK "Inferred NetScaler node built: $nsNodeName → $vipIP"
 Write-Infer "Backend count inferred from $uagCount UAG(s) in Horizon inventory"
@@ -787,7 +910,7 @@ $connections += [ordered]@{
 }
 
 # LB VIP → UAGs
-foreach ($uag in $environment.dmz.unified_access_gateways) {
+foreach ($uag in $envData.dmz.unified_access_gateways) {
     $connections += [ordered]@{
         from     = $nsNodeName
         to       = $uag.name
@@ -801,8 +924,8 @@ foreach ($uag in $environment.dmz.unified_access_gateways) {
 }
 
 # UAGs → Connection Servers
-foreach ($uag in $environment.dmz.unified_access_gateways) {
-    foreach ($cs in $environment.horizon.connection_servers) {
+foreach ($uag in $envData.dmz.unified_access_gateways) {
+    foreach ($cs in $envData.horizon.connection_servers) {
         $connections += [ordered]@{
             from     = $uag.name
             to       = $cs.name
@@ -816,8 +939,8 @@ foreach ($uag in $environment.dmz.unified_access_gateways) {
 }
 
 # Connection Servers → vCenter
-foreach ($cs in $environment.horizon.connection_servers) {
-    foreach ($vc in $environment.vcenter.server) {
+foreach ($cs in $envData.horizon.connection_servers) {
+    foreach ($vc in $envData.vcenter.server) {
         $connections += [ordered]@{
             from     = $cs.name
             to       = $vc.name
@@ -831,8 +954,8 @@ foreach ($cs in $environment.horizon.connection_servers) {
 }
 
 # Connection Servers → Composer
-foreach ($cs in $environment.horizon.connection_servers) {
-    foreach ($comp in $environment.horizon.composer) {
+foreach ($cs in $envData.horizon.connection_servers) {
+    foreach ($comp in $envData.horizon.composer) {
         $connections += [ordered]@{
             from     = $cs.name
             to       = $comp.address
@@ -846,10 +969,10 @@ foreach ($cs in $environment.horizon.connection_servers) {
 }
 
 # CS cluster replication
-for ($i = 0; $i -lt $environment.horizon.connection_servers.Count - 1; $i++) {
+for ($i = 0; $i -lt $envData.horizon.connection_servers.Count - 1; $i++) {
     $connections += [ordered]@{
-        from     = $environment.horizon.connection_servers[$i].name
-        to       = $environment.horizon.connection_servers[$i + 1].name
+        from     = $envData.horizon.connection_servers[$i].name
+        to       = $envData.horizon.connection_servers[$i + 1].name
         port     = 4001
         protocol = "TCP/JMS"
         label    = "JMS 4001"
@@ -859,9 +982,9 @@ for ($i = 0; $i -lt $environment.horizon.connection_servers.Count - 1; $i++) {
 }
 
 # vCenter → Clusters
-foreach ($cluster in $environment.vcenter.clusters) {
+foreach ($cluster in $envData.vcenter.clusters) {
     $connections += [ordered]@{
-        from     = ($environment.vcenter.server | Select-Object -First 1).name
+        from     = ($envData.vcenter.server | Select-Object -First 1).name
         to       = $cluster.name
         port     = 443
         protocol = "HTTPS"
@@ -872,7 +995,7 @@ foreach ($cluster in $environment.vcenter.clusters) {
 }
 
 # ESXi → FC
-foreach ($hba in ($environment.storage.fc_hbas | Select-Object -Unique host)) {
+foreach ($hba in ($envData.storage.fc_hbas | Select-Object -Unique host)) {
     $connections += [ordered]@{
         from     = $hba.host
         to       = "FC Fabric"
@@ -884,7 +1007,7 @@ foreach ($hba in ($environment.storage.fc_hbas | Select-Object -Unique host)) {
     }
 }
 
-$environment.connections = $connections
+$envData.connections = $connections
 Write-OK "Generated $($connections.Count) connection edge(s)"
 
 #endregion
@@ -893,7 +1016,7 @@ Write-OK "Generated $($connections.Count) connection edge(s)"
 
 Write-Section "Output"
 
-$jsonOutput = $environment | ConvertTo-Json -Depth 10
+$jsonOutput = $envData | ConvertTo-Json -Depth 10
 $jsonOutput | Out-File -FilePath $OutputPath -Encoding UTF8
 $fileSizeKB = [math]::Round((Get-Item $OutputPath).Length / 1KB, 1)
 
@@ -903,13 +1026,13 @@ Write-OK "Output written: $OutputPath ($fileSizeKB KB)"
 Write-Host "`n╔══════════════════════════════════════════════════════════╗" -ForegroundColor Green
 Write-Host "║            Harvest Complete — Data Quality Summary      ║" -ForegroundColor Green
 Write-Host "╠══════════════════════════════════════════════════════════╣" -ForegroundColor Green
-Write-Host "║  ✔ vCenter clusters        : $($environment.vcenter.clusters.Count.ToString().PadRight(28)) ║" -ForegroundColor Green
-Write-Host "║  ✔ ESXi hosts              : $($environment.vcenter.hosts.Count.ToString().PadRight(28)) ║" -ForegroundColor Green
-Write-Host "║  ✔ Connection servers      : $($environment.horizon.connection_servers.Count.ToString().PadRight(28)) ║" -ForegroundColor Green
-Write-Host "║  ✔ UAGs                    : $($environment.dmz.unified_access_gateways.Count.ToString().PadRight(28)) ║" -ForegroundColor Green
-Write-Host "║  ✔ Desktop pools           : $($environment.horizon.desktop_pools.Count.ToString().PadRight(28)) ║" -ForegroundColor Green
-Write-Host "║  ~ LB VIPs (inferred)      : $($environment.dmz.netscalers.Count.ToString().PadRight(28)) ║" -ForegroundColor DarkYellow
-Write-Host "║  ~ Inference log entries   : $($environment.dmz.inference_log.Count.ToString().PadRight(28)) ║" -ForegroundColor DarkYellow
+Write-Host "║  ✔ vCenter clusters        : $($envData.vcenter.clusters.Count.ToString().PadRight(28)) ║" -ForegroundColor Green
+Write-Host "║  ✔ ESXi hosts              : $($envData.vcenter.hosts.Count.ToString().PadRight(28)) ║" -ForegroundColor Green
+Write-Host "║  ✔ Connection servers      : $($envData.horizon.connection_servers.Count.ToString().PadRight(28)) ║" -ForegroundColor Green
+Write-Host "║  ✔ UAGs                    : $($envData.dmz.unified_access_gateways.Count.ToString().PadRight(28)) ║" -ForegroundColor Green
+Write-Host "║  ✔ Desktop pools           : $($envData.horizon.desktop_pools.Count.ToString().PadRight(28)) ║" -ForegroundColor Green
+Write-Host "║  ~ LB VIPs (inferred)      : $($envData.dmz.netscalers.Count.ToString().PadRight(28)) ║" -ForegroundColor DarkYellow
+Write-Host "║  ~ Inference log entries   : $($envData.dmz.inference_log.Count.ToString().PadRight(28)) ║" -ForegroundColor DarkYellow
 Write-Host "║  ✗ LB method/persistence   : UNKNOWN                     ║" -ForegroundColor Red
 Write-Host "║  ✗ Cipher suites / TLS pol : UNKNOWN                     ║" -ForegroundColor Red
 Write-Host "║  ✗ HA pair config          : UNKNOWN                     ║" -ForegroundColor Red

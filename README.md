@@ -91,6 +91,71 @@ python generator/Generate-HorizonDiagram.py \
 
 ---
 
+## Multi-Environment Workflow
+
+If you manage Horizon across multiple environments (prod, test, DR…), you can
+register each one **once** and never retype hostnames or credentials again.
+Hostnames live in a shared JSON config; credentials live in an encrypted
+SecretStore vault.
+
+### 1 — Register an environment (one-time)
+
+```powershell
+pwsh ./harvester/Register-HorizonEnvironment.ps1 -Environment prod
+```
+
+This will:
+- Install `Microsoft.PowerShell.SecretManagement` + `SecretStore` (first run only)
+- Prompt for a SecretStore **master password** (first run only — remember it!)
+- Prompt for vCenter FQDN, Horizon CS FQDN, external URL, and TLS skip preference
+- Prompt for vCenter and Horizon credentials
+- Write hostnames to `~/.config/hrzn-harvester/environments.json`
+- Store credentials as `hrzn-prod-vcenter` and `hrzn-prod-horizon` in the vault
+
+Add `-Variant full` to also prompt for NetScaler NITRO credentials.
+
+### 2 — Harvest
+
+```powershell
+pwsh ./harvester/Invoke-HorizonHarvester-NoNetScaler.ps1 -Environment prod
+```
+
+Output goes to `data/prod-environment.json`.
+
+### 3 — Generate
+
+```bash
+python generator/Generate-HorizonDiagram.py --environment prod --drawio
+```
+
+Reads `data/prod-environment.json`, writes `output/prod-diagram.{png,drawio}`.
+
+### Security Note — why SecretStore and not `Export-Clixml`?
+
+> `Export-Clixml` with a `PSCredential` is a well-known PowerShell pattern on
+> Windows: DPAPI encrypts the file so only the current user on the current
+> machine can read it. On **macOS and Linux** PowerShell 7 has no DPAPI
+> equivalent — it falls back to storing the AES key **next to** the
+> ciphertext. That's obfuscation, not encryption: anyone who can read the
+> file can decrypt it.
+>
+> `Microsoft.PowerShell.SecretStore` is Microsoft's supported cross-platform
+> answer: real AES-256 encryption gated by a user-supplied master password,
+> identical behaviour on Windows, macOS, and Linux. You'll be asked for the
+> master password once per shell session (15-minute timeout by default).
+
+### Config file location
+
+```
+~/.config/hrzn-harvester/environments.json   # default
+$env:HRZN_CONFIG_PATH                         # override via env var
+--config-path <file>                          # override via CLI (Python generator)
+```
+
+A template with the expected schema lives at `config/environments.example.json`.
+
+---
+
 ## Diagram Layers
 
 | Layer | Components |

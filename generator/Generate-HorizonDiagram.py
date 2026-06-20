@@ -107,6 +107,52 @@ EDGE_ATTRS = {
 # ── Helpers ───────────────────────────────────────────────────────────────────
 # ══════════════════════════════════════════════════════════════════════════════
 
+def resolve_config_path(explicit: str | None = None) -> Path:
+    """
+    Resolve the environments.json config path using (in order):
+      1. --config-path argument
+      2. $HRZN_CONFIG_PATH env var
+      3. ~/.config/hrzn-harvester/environments.json
+    """
+    if explicit:
+        return Path(explicit).expanduser()
+    env_var = os.environ.get("HRZN_CONFIG_PATH")
+    if env_var:
+        return Path(env_var).expanduser()
+    return Path.home() / ".config" / "hrzn-harvester" / "environments.json"
+
+
+def load_env_config(config_path: Path, env_name: str) -> dict:
+    """
+    Read a single environment entry from environments.json. Errors clearly
+    if either the config file or the named environment is missing.
+    """
+    if not config_path.exists():
+        print(f"\n[ERROR] Config file not found: {config_path}")
+        print("  Run: pwsh ./harvester/Register-HorizonEnvironment.ps1 "
+              f"-Environment {env_name}")
+        print("  …to create it, or pass --config-path to point at an existing file.\n")
+        sys.exit(1)
+
+    try:
+        with open(config_path, encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as exc:
+        print(f"\n[ERROR] Config file is not valid JSON: {config_path}\n  {exc}\n")
+        sys.exit(1)
+
+    environments = data.get("environments", {})
+    if env_name not in environments:
+        available = ", ".join(sorted(environments.keys())) or "(none)"
+        print(f"\n[ERROR] Environment '{env_name}' not found in {config_path}")
+        print(f"  Available environments: {available}")
+        print(f"  Register it with: pwsh ./harvester/Register-HorizonEnvironment.ps1 "
+              f"-Environment {env_name}\n")
+        sys.exit(1)
+
+    return environments[env_name]
+
+
 def load_environment(json_path: str) -> dict:
     """Load and validate the harvested environment JSON."""
     path = Path(json_path)
@@ -862,8 +908,17 @@ Examples:
   python Generate-HorizonDiagram.py --input horizon-environment.json --no-port-labels
         """
     )
-    parser.add_argument("--input",    "-i", default="horizon-environment.json",
-                        help="Path to JSON from Invoke-HorizonHarvester.ps1")
+    parser.add_argument("--environment", "-E", default="",
+                        help="Environment name (resolves input + output paths from "
+                             "~/.config/hrzn-harvester/environments.json). Overridable "
+                             "via --config-path or $HRZN_CONFIG_PATH.")
+    parser.add_argument("--config-path", default="",
+                        help="Path to environments.json (default: "
+                             "$HRZN_CONFIG_PATH or ~/.config/hrzn-harvester/environments.json).")
+    parser.add_argument("--input",    "-i", default="",
+                        help="Path to JSON from Invoke-HorizonHarvester.ps1. "
+                             "Defaults to data/{env}-environment.json when --environment is set, "
+                             "otherwise horizon-environment.json.")
     parser.add_argument("--output",   "-o", default="",
                         help="Output filename stem (no extension). Defaults to env name.")
     parser.add_argument("--output-dir", "-O", default="output",
@@ -882,6 +937,28 @@ Examples:
                         help="Print environment summary and exit without generating diagram")
 
     args = parser.parse_args()
+
+    # ── Resolve --environment defaults ────────────────────────────────────────
+    # When --environment is supplied, derive --input and the output stem from
+    # the shared config file unless the user explicitly passed them.
+    env_config: dict | None = None
+    repo_root = Path(__file__).resolve().parent.parent
+    if args.environment:
+        config_path = resolve_config_path(args.config_path or None)
+        env_config = load_env_config(config_path, args.environment)
+        print_step(f"Using environment '{args.environment}' from {config_path}")
+
+        if not args.input:
+            args.input = str(repo_root / "data" / f"{args.environment}-environment.json")
+        if not args.output:
+            args.output = f"{args.environment}-diagram"
+        # Honor per-env output_dir only if user didn't override the default
+        if (env_config.get("output_dir")
+                and args.output_dir == parser.get_default("output_dir")):
+            args.output_dir = env_config["output_dir"]
+
+    if not args.input:
+        args.input = "horizon-environment.json"
 
     # Load environment data
     env = load_environment(args.input)

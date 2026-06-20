@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "default_environment": "example",
+  "environments": {
+    "example": {
+      "vcenter": "vcenter.example.org",
+      "horizon": "horizon-cs01.example.org",
+      "external_url": "vdi.example.org",
+      "variant": "no-netscaler",
+      "skip_certificate_check": true,
+      "output_dir": null
+    }
+  }
+}

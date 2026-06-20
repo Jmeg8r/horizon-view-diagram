@@ -46,3 +46,9 @@ Thumbs.db
 *.credential
 secrets.json
 .env
+
+# ── Multi-environment config + harvested data ────────────────────────────────
+# Real environments.json lives at ~/.config/hrzn-harvester/ by default, but
+# guard against an in-repo copy being committed accidentally.
+config/environments.json
+data/
