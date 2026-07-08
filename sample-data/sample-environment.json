@@ -1,0 +1,421 @@
+{
+  "metadata": {
+    "generated_at": "2026-04-05T08:00:00Z",
+    "generator": "Invoke-HorizonHarvester.ps1 v1.0",
+    "vcenter_server": "vcenter.example.org",
+    "horizon_server": "horizon-cs01.example.org",
+    "environment_name": "Contoso Health Horizon View Production"
+  },
+  "dmz": {
+    "netscalers": [
+      {
+        "name": "NS-VIP-HORIZON",
+        "type": "LB vServer",
+        "vip": "192.0.2.50",
+        "port": 443,
+        "protocol": "SSL",
+        "lb_method": "ROUNDROBIN",
+        "persistence": "SOURCEIP",
+        "state": "UP",
+        "active_services": 2,
+        "total_services": 2,
+        "tls12": true,
+        "tls13": true,
+        "comment": "Horizon View External Access"
+      },
+      {
+        "name": "NS-VIP-BLAST",
+        "type": "LB vServer",
+        "vip": "192.0.2.51",
+        "port": 8443,
+        "protocol": "SSL",
+        "lb_method": "ROUNDROBIN",
+        "state": "UP",
+        "active_services": 2,
+        "total_services": 2,
+        "comment": "Blast Extreme External"
+      }
+    ],
+    "unified_access_gateways": [
+      {
+        "name": "UAG-01",
+        "type": "UAG",
+        "address": "192.0.2.11",
+        "version": "23.12.0",
+        "status": "RUNNING",
+        "active_sessions": 312,
+        "gateway_zone": "EXTERNAL",
+        "ports": [
+          { "port": 443, "protocol": "HTTPS", "service": "Blast/HTML Access" },
+          { "port": 8443, "protocol": "HTTPS", "service": "Blast Extreme" },
+          { "port": 4172, "protocol": "TCP/UDP", "service": "PCoIP" }
+        ]
+      },
+      {
+        "name": "UAG-02",
+        "type": "UAG",
+        "address": "192.0.2.12",
+        "version": "23.12.0",
+        "status": "RUNNING",
+        "active_sessions": 287,
+        "gateway_zone": "EXTERNAL",
+        "ports": [
+          { "port": 443, "protocol": "HTTPS", "service": "Blast/HTML Access" },
+          { "port": 8443, "protocol": "HTTPS", "service": "Blast Extreme" },
+          { "port": 4172, "protocol": "TCP/UDP", "service": "PCoIP" }
+        ]
+      }
+    ],
+    "firewalls": []
+  },
+  "horizon": {
+    "connection_servers": [
+      {
+        "name": "HORIZON-CS01",
+        "fqdn": "horizon-cs01.example.org",
+        "version": "8.12.0",
+        "build": "23692540",
+        "status": "OK",
+        "enabled": true,
+        "tunnel_enabled": true,
+        "blast_enabled": true,
+        "pcoip_enabled": true,
+        "certificate_health": "VALID",
+        "ports": [
+          { "port": 443,   "protocol": "HTTPS",   "service": "Blast/Admin/HTML Access" },
+          { "port": 8443,  "protocol": "HTTPS",   "service": "Blast Extreme" },
+          { "port": 4172,  "protocol": "TCP/UDP", "service": "PCoIP" },
+          { "port": 4001,  "protocol": "TCP",     "service": "JMS (CS Cluster)" },
+          { "port": 22443, "protocol": "UDP",     "service": "Blast Extreme UDP" }
+        ]
+      },
+      {
+        "name": "HORIZON-CS02",
+        "fqdn": "horizon-cs02.example.org",
+        "version": "8.12.0",
+        "build": "23692540",
+        "status": "OK",
+        "enabled": true,
+        "tunnel_enabled": true,
+        "blast_enabled": true,
+        "pcoip_enabled": true,
+        "certificate_health": "VALID",
+        "ports": [
+          { "port": 443,   "protocol": "HTTPS",   "service": "Blast/Admin/HTML Access" },
+          { "port": 8443,  "protocol": "HTTPS",   "service": "Blast Extreme" },
+          { "port": 4172,  "protocol": "TCP/UDP", "service": "PCoIP" },
+          { "port": 4001,  "protocol": "TCP",     "service": "JMS (CS Cluster)" }
+        ]
+      },
+      {
+        "name": "HORIZON-CS03",
+        "fqdn": "horizon-cs03.example.org",
+        "version": "8.12.0",
+        "build": "23692540",
+        "status": "OK",
+        "enabled": true,
+        "tunnel_enabled": false,
+        "blast_enabled": false,
+        "pcoip_enabled": false,
+        "certificate_health": "VALID",
+        "ports": [
+          { "port": 443,  "protocol": "HTTPS", "service": "Admin Only" },
+          { "port": 4001, "protocol": "TCP",   "service": "JMS (CS Cluster)" }
+        ]
+      }
+    ],
+    "composer": [
+      {
+        "name": "View Composer",
+        "address": "composer01.example.org",
+        "port": 18443,
+        "vcenter": "vcenter.example.org",
+        "version": "8.12.0",
+        "ports": [
+          { "port": 18443, "protocol": "HTTPS/SOAP", "service": "Composer SOAP API" }
+        ]
+      }
+    ],
+    "app_volumes": [
+      {
+        "name": "appvolumes01.example.org",
+        "address": "appvolumes01.example.org",
+        "port": 443,
+        "status": "RUNNING",
+        "ports": [
+          { "port": 443, "protocol": "HTTPS", "service": "App Volumes Manager" }
+        ]
+      }
+    ],
+    "enrollment_servers": [],
+    "desktop_pools": [
+      {
+        "name": "WIN11-FINANCE",
+        "display_name": "Finance Windows 11",
+        "type": "AUTOMATED",
+        "source": "INSTANT_CLONE",
+        "enabled": true,
+        "protocol_default": "BLAST",
+        "machine_count": 450,
+        "session_count": 312
+      },
+      {
+        "name": "WIN11-CLINICAL",
+        "display_name": "Clinical Windows 11",
+        "type": "AUTOMATED",
+        "source": "INSTANT_CLONE",
+        "enabled": true,
+        "protocol_default": "BLAST",
+        "machine_count": 2800,
+        "session_count": 1876
+      },
+      {
+        "name": "WIN11-ADMIN",
+        "display_name": "Admin Windows 11",
+        "type": "AUTOMATED",
+        "source": "INSTANT_CLONE",
+        "enabled": true,
+        "protocol_default": "BLAST",
+        "machine_count": 800,
+        "session_count": 521
+      },
+      {
+        "name": "RDS-APPS",
+        "display_name": "Published Applications",
+        "type": "RDS",
+        "source": "RDS_FARM",
+        "enabled": true,
+        "protocol_default": "BLAST",
+        "machine_count": 12,
+        "session_count": 388
+      }
+    ],
+    "rds_farms": [
+      {
+        "name": "RDSFARM-APPS-01",
+        "type": "AUTOMATED",
+        "source": "INSTANT_CLONE",
+        "enabled": true,
+        "server_count": 12,
+        "session_count": 388
+      }
+    ]
+  },
+  "vcenter": {
+    "server": [
+      {
+        "name": "vcenter.example.org",
+        "version": "8.0.3",
+        "build": "23788635",
+        "os_type": "VMware vCenter Server"
+      }
+    ],
+    "datacenters": [
+      { "name": "Contoso-DC", "id": "datacenter-1" }
+    ],
+    "clusters": [
+      {
+        "name": "VDI-PROD-CLUSTER-01",
+        "datacenter": "Contoso-DC",
+        "ha_enabled": true,
+        "drs_enabled": true,
+        "drs_mode": "FullyAutomated",
+        "host_count": 8,
+        "total_cpu_ghz": 307.2,
+        "total_memory_gb": 3072,
+        "hosts": [
+          "esxi-vdi-01.example.org", "esxi-vdi-02.example.org",
+          "esxi-vdi-03.example.org", "esxi-vdi-04.example.org",
+          "esxi-vdi-05.example.org", "esxi-vdi-06.example.org",
+          "esxi-vdi-07.example.org", "esxi-vdi-08.example.org"
+        ]
+      },
+      {
+        "name": "VDI-PROD-CLUSTER-02",
+        "datacenter": "Contoso-DC",
+        "ha_enabled": true,
+        "drs_enabled": true,
+        "drs_mode": "FullyAutomated",
+        "host_count": 8,
+        "total_cpu_ghz": 307.2,
+        "total_memory_gb": 3072,
+        "hosts": [
+          "esxi-vdi-09.example.org", "esxi-vdi-10.example.org",
+          "esxi-vdi-11.example.org", "esxi-vdi-12.example.org",
+          "esxi-vdi-13.example.org", "esxi-vdi-14.example.org",
+          "esxi-vdi-15.example.org", "esxi-vdi-16.example.org"
+        ]
+      }
+    ],
+    "hosts": [
+      {
+        "name": "esxi-vdi-01.example.org",
+        "cluster": "VDI-PROD-CLUSTER-01",
+        "manufacturer": "Dell Inc.",
+        "model": "PowerEdge R760",
+        "cpu_model": "Intel(R) Xeon(R) Gold 6438Y+",
+        "cpu_sockets": 2,
+        "memory_gb": 384,
+        "esxi_version": "8.0.3",
+        "connection_state": "Connected",
+        "power_state": "PoweredOn",
+        "management_ip": "198.51.100.11"
+      }
+    ],
+    "port_groups": []
+  },
+  "storage": {
+    "datastores": [
+      {
+        "name": "VDI-REPLICA-DS-01",
+        "type": "VMFS",
+        "capacity_gb": 10240,
+        "free_gb": 4096,
+        "used_pct": 60.0,
+        "host_count": 8,
+        "state": "Accessible",
+        "scsi_luns": [
+          {
+            "canonical_name": "naa.6006016094602d0048abc01234560001",
+            "capacity_gb": 10240,
+            "multipath_policy": "RoundRobin",
+            "vendor": "PURE",
+            "model": "FlashArray",
+            "lun_type": "disk"
+          }
+        ]
+      },
+      {
+        "name": "VDI-DATA-DS-01",
+        "type": "VMFS",
+        "capacity_gb": 20480,
+        "free_gb": 8192,
+        "used_pct": 60.0,
+        "host_count": 16,
+        "state": "Accessible",
+        "scsi_luns": [
+          {
+            "canonical_name": "naa.6006016094602d0048abc01234560002",
+            "capacity_gb": 20480,
+            "multipath_policy": "RoundRobin",
+            "vendor": "PURE",
+            "model": "FlashArray",
+            "lun_type": "disk"
+          }
+        ]
+      }
+    ],
+    "fc_hbas": [
+      {
+        "host": "esxi-vdi-01.example.org",
+        "device": "vmhba1",
+        "model": "Emulex LightPulse LPe36002",
+        "driver": "lpfc",
+        "wwpn": "10:00:00:90:FA:8B:C1:01",
+        "wwnn": "20:00:00:90:FA:8B:C1:01",
+        "speed": 32,
+        "status": "online"
+      },
+      {
+        "host": "esxi-vdi-01.example.org",
+        "device": "vmhba2",
+        "model": "Emulex LightPulse LPe36002",
+        "driver": "lpfc",
+        "wwpn": "10:00:00:90:FA:8B:C1:02",
+        "wwnn": "20:00:00:90:FA:8B:C1:02",
+        "speed": 32,
+        "status": "online"
+      }
+    ],
+    "fc_switches": [
+      {
+        "name": "BROCADE-FC-A",
+        "vendor": "Brocade",
+        "model": "G630",
+        "fabric": "Fabric-A",
+        "ports": 64,
+        "speed": "32Gbps"
+      },
+      {
+        "name": "BROCADE-FC-B",
+        "vendor": "Brocade",
+        "model": "G630",
+        "fabric": "Fabric-B",
+        "ports": 64,
+        "speed": "32Gbps"
+      }
+    ],
+    "arrays": [
+      {
+        "name": "PURE-FA-01",
+        "vendor": "Pure Storage",
+        "model": "FlashArray//XL130",
+        "fabric": "Fabric-A and Fabric-B",
+        "raw_tb": 512,
+        "usable_tb": 384,
+        "used_pct": 52.0,
+        "ports": ["5001500A40A1B001", "5001500A40A1B002", "5001500A40A1C001", "5001500A40A1C002"]
+      }
+    ]
+  },
+  "networking": {
+    "vmkernel_adapters": [
+      {
+        "host": "esxi-vdi-01.example.org",
+        "adapter": "vmk0",
+        "ip": "198.51.100.11",
+        "subnet": "255.255.255.0",
+        "mtu": 1500,
+        "port_group": "Management Network",
+        "services": ["Management"]
+      },
+      {
+        "host": "esxi-vdi-01.example.org",
+        "adapter": "vmk1",
+        "ip": "203.0.113.11",
+        "subnet": "255.255.255.0",
+        "mtu": 9000,
+        "port_group": "vMotion Network",
+        "services": ["vMotion"]
+      }
+    ],
+    "distributed_switches": [
+      {
+        "name": "VDI-DVS-01",
+        "version": "8.0.0",
+        "mtu": 9000,
+        "uplinks": 2,
+        "port_groups": [
+          { "name": "PG-Management",  "vlan": "VLAN 100", "ports": 32 },
+          { "name": "PG-VDI-Desktop", "vlan": "VLAN 200", "ports": 1024 },
+          { "name": "PG-vMotion",     "vlan": "VLAN 300", "ports": 32 },
+          { "name": "PG-Replication", "vlan": "VLAN 400", "ports": 32 }
+        ]
+      }
+    ]
+  },
+  "connections": [
+    { "from": "Internet/Clients",  "to": "NS-VIP-HORIZON",  "port": 443,  "protocol": "HTTPS",      "label": "HTTPS 443",        "tier": "client-to-dmz" },
+    { "from": "Internet/Clients",  "to": "NS-VIP-BLAST",    "port": 8443, "protocol": "HTTPS",      "label": "Blast 8443",       "tier": "client-to-dmz" },
+    { "from": "NS-VIP-HORIZON",    "to": "UAG-01",          "port": 443,  "protocol": "HTTPS",      "label": "HTTPS 443",        "tier": "dmz-internal" },
+    { "from": "NS-VIP-HORIZON",    "to": "UAG-02",          "port": 443,  "protocol": "HTTPS",      "label": "HTTPS 443",        "tier": "dmz-internal" },
+    { "from": "NS-VIP-BLAST",      "to": "UAG-01",          "port": 8443, "protocol": "HTTPS",      "label": "Blast 8443",       "tier": "dmz-internal" },
+    { "from": "NS-VIP-BLAST",      "to": "UAG-02",          "port": 8443, "protocol": "HTTPS",      "label": "Blast 8443",       "tier": "dmz-internal" },
+    { "from": "UAG-01",            "to": "HORIZON-CS01",    "port": 8443, "protocol": "HTTPS",      "label": "Blast 8443",       "tier": "dmz-internal" },
+    { "from": "UAG-01",            "to": "HORIZON-CS02",    "port": 8443, "protocol": "HTTPS",      "label": "Blast 8443",       "tier": "dmz-internal" },
+    { "from": "UAG-02",            "to": "HORIZON-CS01",    "port": 8443, "protocol": "HTTPS",      "label": "Blast 8443",       "tier": "dmz-internal" },
+    { "from": "UAG-02",            "to": "HORIZON-CS02",    "port": 8443, "protocol": "HTTPS",      "label": "Blast 8443",       "tier": "dmz-internal" },
+    { "from": "HORIZON-CS01",      "to": "HORIZON-CS02",    "port": 4001, "protocol": "TCP/JMS",    "label": "JMS 4001",         "tier": "horizon-cluster" },
+    { "from": "HORIZON-CS02",      "to": "HORIZON-CS03",    "port": 4001, "protocol": "TCP/JMS",    "label": "JMS 4001",         "tier": "horizon-cluster" },
+    { "from": "HORIZON-CS01",      "to": "vcenter.example.org", "port": 443, "protocol": "HTTPS", "label": "vSphere API 443",  "tier": "horizon-vcenter" },
+    { "from": "HORIZON-CS01",      "to": "composer01.example.org", "port": 18443, "protocol": "HTTPS/SOAP", "label": "SOAP 18443", "tier": "horizon-internal" },
+    { "from": "vcenter.example.org", "to": "VDI-PROD-CLUSTER-01", "port": 443, "protocol": "HTTPS", "label": "vSphere Mgmt", "tier": "vcenter-compute" },
+    { "from": "vcenter.example.org", "to": "VDI-PROD-CLUSTER-02", "port": 443, "protocol": "HTTPS", "label": "vSphere Mgmt", "tier": "vcenter-compute" },
+    { "from": "VDI-PROD-CLUSTER-01", "to": "BROCADE-FC-A",  "port": null, "protocol": "FC",        "label": "FC 32Gbps",        "tier": "compute-storage" },
+    { "from": "VDI-PROD-CLUSTER-01", "to": "BROCADE-FC-B",  "port": null, "protocol": "FC",        "label": "FC 32Gbps",        "tier": "compute-storage" },
+    { "from": "VDI-PROD-CLUSTER-02", "to": "BROCADE-FC-A",  "port": null, "protocol": "FC",        "label": "FC 32Gbps",        "tier": "compute-storage" },
+    { "from": "VDI-PROD-CLUSTER-02", "to": "BROCADE-FC-B",  "port": null, "protocol": "FC",        "label": "FC 32Gbps",        "tier": "compute-storage" },
+    { "from": "BROCADE-FC-A",      "to": "PURE-FA-01",      "port": null, "protocol": "FC",        "label": "FC Fabric-A",      "tier": "fabric-array" },
+    { "from": "BROCADE-FC-B",      "to": "PURE-FA-01",      "port": null, "protocol": "FC",        "label": "FC Fabric-B",      "tier": "fabric-array" }
+  ]
+}

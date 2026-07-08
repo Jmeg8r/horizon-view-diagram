@@ -9,6 +9,8 @@ output/
 # Remove this line if you WANT to version-control your environment snapshots
 horizon-environment.json
 *-environment.json
+# The shipped sanitized example is the one exception to the pattern above
+!sample-data/sample-environment.json
 
 # ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
@@ -52,3 +54,4 @@ secrets.json
 # guard against an in-repo copy being committed accidentally.
 config/environments.json
 data/
+data/*.json
