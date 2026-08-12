@@ -55,3 +55,7 @@ secrets.json
 config/environments.json
 data/
 data/*.json
+.coderabbit.local.yaml
+.lefthook-local.yml
+.cr-cache/
+*.cr-review.md
