@@ -4,6 +4,8 @@ output/
 *.svg
 *.pdf
 *.drawio
+# The architecture diagram of this repo itself is source-controlled
+!docs/diagrams/*.svg
 
 # ── Harvested environment data (may contain sensitive IPs/FQDNs) ──────────────
 # Remove this line if you WANT to version-control your environment snapshots

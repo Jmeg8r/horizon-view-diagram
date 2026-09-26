@@ -1,0 +1,327 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "horizon-view-diagram \u2014 Horizon architecture diagram generator",
+    "output": "horizon-view-diagram.architecture.html",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "harvest",
+        "label": "Harvest",
+        "focus": [
+          "harv",
+          "vc",
+          "hz",
+          "ns",
+          "json"
+        ],
+        "note": "The harvester reads vCenter via PowerCLI and Horizon via REST, then gets NetScaler data from NITRO or by probing."
+      },
+      {
+        "id": "setup",
+        "label": "Environment setup",
+        "focus": [
+          "reg",
+          "cfg",
+          "vault",
+          "harv"
+        ],
+        "note": "Register-HorizonEnvironment writes hostnames to environments.json and credentials to a SecretStore vault."
+      },
+      {
+        "id": "render",
+        "label": "Render",
+        "focus": [
+          "json",
+          "gen",
+          "out"
+        ],
+        "note": "The Python generator turns the JSON into PNG, SVG or PDF with diagrams + Graphviz, plus optional Draw.io XML."
+      }
+    ]
+  },
+  "components": [
+    {
+      "id": "cfg",
+      "type": "database",
+      "label": "environments.json",
+      "sublabel": "~/.config/hrzn-harvester",
+      "pos": [
+        250,
+        80
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "reg",
+      "type": "security",
+      "label": "Register script",
+      "sublabel": "one-time setup",
+      "pos": [
+        40,
+        220
+      ],
+      "size": [
+        140,
+        60
+      ],
+      "tag": "pwsh 7"
+    },
+    {
+      "id": "vault",
+      "type": "security",
+      "label": "SecretStore vault",
+      "sublabel": "credentials",
+      "pos": [
+        250,
+        360
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "harv",
+      "type": "backend",
+      "label": "Harvester",
+      "sublabel": "PowerShell",
+      "pos": [
+        460,
+        220
+      ],
+      "size": [
+        140,
+        60
+      ],
+      "tag": "2 variants"
+    },
+    {
+      "id": "vc",
+      "type": "external",
+      "label": "vCenter",
+      "sublabel": "PowerCLI",
+      "pos": [
+        670,
+        80
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "hz",
+      "type": "external",
+      "label": "Horizon CS",
+      "sublabel": "REST API",
+      "pos": [
+        670,
+        220
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "ns",
+      "type": "external",
+      "label": "NetScaler / VIPs",
+      "sublabel": "NITRO or probe",
+      "pos": [
+        670,
+        360
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "test",
+      "type": "backend",
+      "label": "Test-HorizonLogin",
+      "sublabel": "login diagnostics",
+      "pos": [
+        880,
+        220
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "json",
+      "type": "database",
+      "label": "Environment JSON",
+      "sublabel": "data/ or --input",
+      "pos": [
+        460,
+        500
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "gen",
+      "type": "backend",
+      "label": "Generator",
+      "sublabel": "Python + Graphviz",
+      "pos": [
+        670,
+        500
+      ],
+      "size": [
+        140,
+        60
+      ]
+    },
+    {
+      "id": "out",
+      "type": "frontend",
+      "label": "Diagram files",
+      "sublabel": "PNG, SVG, PDF, Draw.io",
+      "pos": [
+        880,
+        500
+      ],
+      "size": [
+        140,
+        60
+      ]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "region",
+      "label": "Horizon environment",
+      "wraps": [
+        "vc",
+        "hz",
+        "ns"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "reg-cfg",
+      "from": "reg",
+      "to": "cfg",
+      "label": "hostnames"
+    },
+    {
+      "id": "reg-vault",
+      "from": "reg",
+      "to": "vault",
+      "label": "credentials",
+      "variant": "security"
+    },
+    {
+      "id": "cfg-harv",
+      "from": "cfg",
+      "to": "harv"
+    },
+    {
+      "id": "vault-harv",
+      "from": "vault",
+      "to": "harv",
+      "variant": "security"
+    },
+    {
+      "id": "harv-vc",
+      "from": "harv",
+      "to": "vc",
+      "label": "PowerCLI",
+      "variant": "emphasis",
+      "fromSide": "top"
+    },
+    {
+      "id": "harv-hz",
+      "from": "harv",
+      "to": "hz",
+      "label": "REST",
+      "variant": "emphasis"
+    },
+    {
+      "id": "harv-ns",
+      "from": "harv",
+      "to": "ns",
+      "label": "NITRO/probe",
+      "fromSide": "bottom"
+    },
+    {
+      "id": "harv-json",
+      "from": "harv",
+      "to": "json",
+      "label": "write",
+      "variant": "emphasis",
+      "labelDy": 150
+    },
+    {
+      "id": "json-gen",
+      "from": "json",
+      "to": "gen",
+      "variant": "emphasis"
+    },
+    {
+      "id": "gen-out",
+      "from": "gen",
+      "to": "out",
+      "label": "render",
+      "variant": "emphasis"
+    },
+    {
+      "id": "test-hz",
+      "from": "test",
+      "to": "hz",
+      "label": "/rest/login",
+      "variant": "dashed"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Harvesters",
+      "items": [
+        "Full: NetScaler via NITRO API",
+        "NoNetScaler: DNS, TCP and TLS inference",
+        "Only NoNetScaler reads -Environment"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Credentials",
+      "items": [
+        "SecretStore vault, not Export-Clixml",
+        "Hostnames in environments.json",
+        "HRZN_CONFIG_PATH overrides the path"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Generator",
+      "items": [
+        "diagrams + Graphviz system binary",
+        "png, svg or pdf; --drawio adds XML",
+        "--summary-only prints and exits"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Data hygiene",
+      "items": [
+        "Harvested JSON is gitignored",
+        "sample-environment.json for testing",
+        "Output goes to output/ by default"
+      ]
+    }
+  ]
+}

@@ -15,11 +15,18 @@ SVG, or an editable Draw.io file.
 hrzn-view-diagram/
 ├── harvester/
 │   ├── Invoke-HorizonHarvester.ps1              # Full scan (with NetScaler)
-│   └── Invoke-HorizonHarvester-NoNetScaler.ps1  # DNS+port-probe inference variant
+│   ├── Invoke-HorizonHarvester-NoNetScaler.ps1  # DNS+port-probe inference variant
+│   ├── Register-HorizonEnvironment.ps1          # One-time environment + credential setup
+│   ├── Test-HorizonLogin.ps1                    # Diagnostic for Horizon REST login failures
+│   └── Common/HorizonEnvConfig.psm1             # Shared config + SecretStore helpers
 ├── generator/
 │   └── Generate-HorizonDiagram.py               # Diagram renderer
+├── config/
+│   └── environments.example.json                # Schema for the multi-environment config
 ├── sample-data/
 │   └── sample-environment.json                  # Test data — no live env needed
+├── docs/diagrams/                               # Architecture diagram of this tool
+├── data/                                        # Harvested JSON per environment (gitignored)
 ├── output/                                      # Generated diagrams (gitignored)
 ├── requirements.txt
 └── README.md
@@ -112,7 +119,11 @@ This will:
 - Write hostnames to `~/.config/hrzn-harvester/environments.json`
 - Store credentials as `hrzn-prod-vcenter` and `hrzn-prod-horizon` in the vault
 
-Add `-Variant full` to also prompt for NetScaler NITRO credentials.
+Add `-Variant full` to also prompt for NetScaler NITRO credentials. Note that only
+`Invoke-HorizonHarvester-NoNetScaler.ps1` reads `-Environment` today; the full harvester still
+takes `-vCenterServer`, `-HorizonServer` and `-NetScalerServer` directly.
+
+`Register-HorizonEnvironment.ps1` and `Test-HorizonLogin.ps1` require PowerShell 7.
 
 ### 2 — Harvest
 
@@ -197,14 +208,47 @@ A template with the expected schema lives at `config/environments.example.json`.
 ## Generator Options
 
 ```
---input FILE          Path to JSON from harvester (required)
---output STEM         Output filename stem (no extension)
---format FORMAT       png | svg | pdf  (default: png)
+--environment, -E NAME  Resolve input/output from the environments config
+--config-path FILE      environments.json to use (default $HRZN_CONFIG_PATH or ~/.config/hrzn-harvester/)
+--input, -i FILE        Harvester JSON (default data/NAME-environment.json with --environment,
+                        otherwise horizon-environment.json)
+--output, -o STEM       Output filename stem (no extension)
+--output-dir, -O DIR    Output directory (default: output)
+--format, -f FORMAT     png | svg | pdf  (default: png)
 --drawio              Also generate a Draw.io editable XML file
 --show-hosts          Show individual ESXi hosts inside cluster boxes
 --no-port-labels      Hide port/protocol labels on edges (cleaner for presentations)
 --summary-only        Print environment summary without generating diagram
 ```
+
+---
+
+## Troubleshooting Horizon login
+
+If the harvester gets a 401 from Horizon, `harvester/Test-HorizonLogin.ps1 -HorizonServer <fqdn> -Username <user>`
+tries several domain/username formats against `/rest/login` and prints each response. It does not
+read the vault or the config file.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart TD
+    Reg["Register-HorizonEnvironment.ps1"] -->|"hostnames"| Cfg[("~/.config/hrzn-harvester/<br/>environments.json")]
+    Reg -->|"credentials"| Vault[("SecretStore vault")]
+    Cfg --> Harv["Harvester (PowerShell)"]
+    Vault --> Harv
+    Harv -->|"PowerCLI"| VC["vCenter"]
+    Harv -->|"REST /rest/..."| HZ["Horizon Connection Server"]
+    Harv -->|"NITRO API (full variant)<br/>or DNS + TCP/TLS probe"| NS["NetScaler / VIPs"]
+    Harv -->|"writes"| JSON[("environment JSON")]
+    JSON --> Gen["Generate-HorizonDiagram.py<br/>(diagrams + Graphviz)"]
+    Gen --> Out["PNG / SVG / PDF<br/>+ Draw.io XML"]
+```
+
+A rendered diagram is in [`docs/diagrams/horizon-view-diagram.architecture.svg`](docs/diagrams/horizon-view-diagram.architecture.svg)
+(source: `docs/diagrams/horizon-view-diagram.architecture.json`).
 
 ---
 
@@ -226,7 +270,7 @@ Register-ScheduledTask -TaskName "Horizon Diagram Harvester" `
 
 ## Environment
 
-- **PowerShell**: 5.1+ or 7+
+- **PowerShell**: 7+ in practice. The harvesters declare `#Requires -Version 5.1`, but they use the `?.` null-conditional operator, which only parses on PowerShell 7+. `Register-HorizonEnvironment.ps1` and `Test-HorizonLogin.ps1` require 7+ explicitly.
 - **VMware PowerCLI**: 13.0+
 - **Horizon**: 7.8+ (REST API required)
 - **Python**: 3.8+
