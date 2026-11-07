@@ -271,9 +271,9 @@ Register-ScheduledTask -TaskName "Horizon Diagram Harvester" `
 ## Environment
 
 - **PowerShell**: 7+ in practice. The harvesters declare `#Requires -Version 5.1`, but they use the `?.` null-conditional operator, which only parses on PowerShell 7+. `Register-HorizonEnvironment.ps1` and `Test-HorizonLogin.ps1` require 7+ explicitly.
-- **VMware PowerCLI**: 13.0+
-- **Horizon**: 7.8+ (REST API required)
-- **Python**: 3.8+
+- **VMware PowerCLI**: required by both harvesters. TODO(james): confirm the minimum tested version (the scripts do not pin one).
+- **Horizon**: REST API (`/rest/login`) required. TODO(james): confirm the minimum Horizon version.
+- **Python**: 3.10+ (the generator uses `str | None` annotations in function signatures)
 - **Graphviz**: System binary required (see Quick Start)
 
 ---
